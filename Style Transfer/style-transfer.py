@@ -1,14 +1,17 @@
-# Import VGG19
-###
-# Content loss -> L_cont(original, generated, layer) = 1/2 * SUM(GEN - ORIG)^2, where caps are feature reps at layer
-# Content loss derivative -> For each i,j if GEN[i,j] < 0, = 0 ... else (GEN[i,j] - ORIG[i,j]
-###
-# Gram matrix -> G[i,j]^l = SUM[k](GEN[i,k]^l * GEN[j,k]^l)
-# Entries = E_l = (1/(4 * N_l^2 * M_l^2)) * (SUM[i,j] (GEN[i,j] - ORIG[i,j])^2)
-# Style loss -> SUM_(l=0)^L w_l * E_l
-# Style loss derivative -> 0 if F[i,j]_l < 0, else (1/(N_l^2 * M_l^2)) * ((F_l)^T * (GEN_l - ORiG_l))
-###
-# Total loss -> L(CONT, STYL, GEN) = a * L_cont(CONT, GEN) + b * L_style(STYL, GEN)
+#!/usr/bin/env python3
+"""
+style-transfer.py - An implementation of the style transfer algorithm. It's a synthesis of the original paper, combined
+                    with the adaption to the loss function that adds in the variation loss factor for normalization.
+                    Components have been synthesized together.
+
+For reference:
+    - https://arxiv.org/pdf/1508.06576.pdf (original style loss paper)
+    - https://arxiv.org/pdf/1412.0035.pdf (explains the ideas behind variation loss)
+    - https://github.com/keras-team/keras/blob/master/examples/neural_style_transfer.py
+      (style transfer as given by the keras team)
+    - https://harishnarayanan.org/writing/artistic-style-transfer/ (longer tutorial that walks through convolutions)
+
+"""
 
 import keras.backend as K
 from keras.applications import VGG16
@@ -21,17 +24,32 @@ import time
 from scipy.optimize import fmin_l_bfgs_b
 from scipy.misc import imsave
 
+import argparse
+
+
+parser = argparse.ArgumentParser(description='Image neural style transfer implemented with Keras')
+parser.add_argument('content_img', metavar='content', type=str, help='Path to target content image')
+parser.add_argument('style_img', metavar='style', type=str, help='Path to target style image')
+parser.add_argument('result_img_prefix', metavar='res_prefix', type=str, help='Name of generated image')
+parser.add_argument('--iter', type=int, default=10, required=False, help='Number of iterations to run')
+parser.add_argument('--content_weight', type=float, default=0.025, required=False, help='Content weight')
+parser.add_argument('--style_weight', type=float, default=1.0, required=False, help='Style weight')
+parser.add_argument('--var_weight', type=float, default=1.0, required=False, help='Total Variation weight')
+parser.add_argument('--height', type=int, default=512, required=False, help='Height of the images')
+parser.add_argument('--width', type=int, default=512, required=False, help='Width of the images')
+
+args = parser.parse_args()
 
 # Params #
 
-img_height = 512
-img_width = 512
+img_height = args.height
+img_width = args.width
 img_size = img_height * img_width
 img_channels = 3
 
-content_path = 'images/output_3_0.png'
-style_path = 'images/output_4_0.png'
-target_path = 'generated-image'
+content_path = args.content_img
+style_path = args.style_img
+target_path = args.result_img_prefix
 target_extension = '.png'
 
 CONTENT_IMAGE_POS = 0
@@ -54,6 +72,7 @@ def process_img(path):
     # Convert image to data array
     data = np.asarray(img, dtype='float32')
     data = np.expand_dims(data, axis=0)
+    data = data[:, :, :, :3]
 
     # Apply pre-process to match VGG16 we are using
     data[:, :, :, 0] -= 103.939
@@ -67,6 +86,13 @@ def process_img(path):
 
 
 def get_layers(content_matrix, style_matrix, generated_matrix):
+    """
+    Returns the content and style layers we need for the transfer
+    :param content_matrix: The feature matrix of the content image
+    :param style_matrix:  The feature matrix of the style image
+    :param generated_matrix:  The feature matrix of the generated image
+    :return: A tuple of content layers and style layers
+    """
     # Prep the model for our new input sizes
     input_tensor = K.concatenate([content_matrix, style_matrix, generated_matrix], axis=0)
     model = VGG16(input_tensor=input_tensor, weights='imagenet', include_top=False)
@@ -83,6 +109,12 @@ def get_layers(content_matrix, style_matrix, generated_matrix):
 
 
 def content_loss(content_features, generated_features):
+    """
+    Computers the content loss
+    :param content_features: The features of the content image
+    :param generated_features: The features of the generated image
+    :return:
+    """
     return 0.5 * K.sum(K.square(generated_features - content_features))
 
 
@@ -113,7 +145,31 @@ def style_loss(style_matrix, generated_matrix):
     return K.sum(K.square(style_mat - generated_mat)) / (4.0 * (img_channels ** 2) * (img_size ** 2))
 
 
-def total_loss(c_layer, s_layers, alpha=1.0, beta=10000.0):
+def variation_loss(generated_matrix):
+    """
+    Computes the variation loss metric (used for normalization)
+    :param generated_matrix: The generated matrix
+    :return: The variation loss term for normalization
+    """
+    a = K.square(generated_matrix[:, :img_height-1, :img_width-1, :] - generated_matrix[:, 1:, :img_width-1, :])
+    b = K.square(generated_matrix[:, :img_height-1, :img_width-1, :] - generated_matrix[:, :img_height-1, 1:, :])
+
+    return K.sum(K.pow(a + b, 1.25))
+
+
+def total_loss(c_layer, s_layers, generated):
+    """
+    Computes the total loss of a given iteration
+    :param c_layer: The layer used to compute the content loss
+    :param s_layers: The layer(s) used to compute the style loss
+    :param generated: The generated image
+    :return: The total loss
+    """
+
+    content_weight = args.content_weight
+    style_weight = args.style_weight
+    variation_weight = args.var_weight
+
     # Content loss
     content_features = c_layer[CONTENT_IMAGE_POS, :, :, :]
     generated_features = c_layer[GENERATED_IMAGE_POS, :, :, :]
@@ -125,14 +181,22 @@ def total_loss(c_layer, s_layers, alpha=1.0, beta=10000.0):
         style_features = layer[STYLE_IMAGE_POS, :, :, :]
         generated_features = layer[GENERATED_IMAGE_POS, :, :, :]
         if s_loss is None:
-            s_loss = style_loss(style_features, generated_features)
+            s_loss = style_loss(style_features, generated_features) * (style_weight / len(s_layers))
         else:
-            s_loss += style_loss(style_features, generated_features)
+            s_loss += style_loss(style_features, generated_features) * (style_weight / len(s_layers))
 
-    return alpha * c_loss + (beta / len(s_layers)) * s_loss
+    # Variation loss (for regularization)
+    v_loss = variation_loss(generated)
+
+    return content_weight * c_loss + s_loss + variation_weight * v_loss
 
 
 def eval_loss_and_grads(generated):
+    """
+
+    :param generated:
+    :return:
+    """
     generated = generated.reshape((1, img_height, img_width, 3))
     outs = f_outputs([generated])
     loss_value = outs[0]
@@ -141,6 +205,12 @@ def eval_loss_and_grads(generated):
 
 
 def save_image(filename, generated):
+    """
+    Saves the generated image
+    :param filename: The filename that the image is saved to
+    :param generated: The image that we want saved
+    :return: Nothing
+    """
     # Reshape image and flip from BGR to RGB
     generated = generated.reshape((img_height, img_width, 3))
     generated = generated[:, :, ::-1]
@@ -157,6 +227,9 @@ def save_image(filename, generated):
 
 
 class Evaluator(object):
+    """
+    Evaluator class used to track gradients and loss values together
+    """
 
     def __init__(self):
         self.loss_value = None
@@ -198,7 +271,7 @@ if __name__ == '__main__':
     content_layer, style_layers = get_layers(content_image, style_image, generated_image)
 
     # Define loss and gradient
-    loss = total_loss(content_layer, style_layers)
+    loss = total_loss(content_layer, style_layers, generated_image)
     grads = K.gradients(loss, generated_image)
 
     # Define the output
@@ -207,16 +280,16 @@ if __name__ == '__main__':
     f_outputs = K.function([generated_image], outputs)
 
     evaluator = Evaluator()
-    iterations = 10
+    iterations = args.iter
 
     for i in range(iterations):
-        print('Start of iteration', i)
+        print('Iteration:', i)
         start_time = time.time()
         generated_img, min_val, info = fmin_l_bfgs_b(evaluator.loss, generated_img.flatten(),
                                                      fprime=evaluator.grads, maxfun=20)
-        print('Current loss value:', min_val)
+        print('Loss:', min_val)
         end_time = time.time()
-        print('Iteration {} completed in {}'.format(i, end_time - start_time))
+        print('Iteration {} took {} seconds'.format(i, end_time - start_time))
         name = '{}-{}{}'.format(target_path, i+1, target_extension)
         save_image(name, generated_img)
         print('Saved image to: {}'.format(name))
