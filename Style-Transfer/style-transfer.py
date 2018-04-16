@@ -110,10 +110,10 @@ def get_layers(content_matrix, style_matrix, generated_matrix):
 
 def content_loss(content_features, generated_features):
     """
-    Computers the content loss
+    Computes the content loss
     :param content_features: The features of the content image
     :param generated_features: The features of the generated image
-    :return:
+    :return: The content loss
     """
     return 0.5 * K.sum(K.square(generated_features - content_features))
 
@@ -193,9 +193,9 @@ def total_loss(c_layer, s_layers, generated):
 
 def eval_loss_and_grads(generated):
     """
-
-    :param generated:
-    :return:
+    Computes the loss and gradients
+    :param generated: The generated image
+    :return: The loss and the gradients
     """
     generated = generated.reshape((1, img_height, img_width, 3))
     outs = f_outputs([generated])
@@ -254,9 +254,6 @@ if __name__ == '__main__':
     # Prepare the generated image
     generated_img = np.random.uniform(0, 255, (1, img_height, img_width, 3)) - 128.
 
-    name = '{}-{}{}'.format(target_path, 0, target_extension)
-    save_image(name, generated_img)
-
     # Load the respective content and style images
     content = process_img(content_path)
     style = process_img(style_path)
@@ -281,6 +278,9 @@ if __name__ == '__main__':
 
     evaluator = Evaluator()
     iterations = args.iter
+
+    name = '{}-{}{}'.format(target_path, 0, target_extension)
+    save_image(name, generated_img)
 
     for i in range(iterations):
         print('Iteration:', i)
