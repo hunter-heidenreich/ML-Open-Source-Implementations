@@ -15,3 +15,5 @@ Style-Transfer/outputs/city_style3*
 Style-Transfer/outputs/city_style4*
 Style-Transfer/outputs/city_style5*
 Style-Transfer/outputs/city_style6*
+Generative-Adversarial-Networks/models/__pycache__/
+Generative-Adversarial-Networks/models/data.pyc
