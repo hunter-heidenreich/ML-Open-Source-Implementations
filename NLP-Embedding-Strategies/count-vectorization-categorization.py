@@ -30,5 +30,7 @@ pred = clf.predict(vectors_test)
 acc_score = metrics.accuracy_score(newsgroups_test.target, pred)
 f1_score = metrics.f1_score(newsgroups_test.target, pred, average='macro')
 
+# Print the results
+
 print('Total accuracy classification score: {}'.format(acc_score))
 print('Total F1 classification score: {}'.format(f1_score))
