@@ -28,6 +28,7 @@ print('Sample 0 (vectorized): ')
 print(v0)
 print()
 
+
 # It's too big to even see...
 # What's the length?
 print('Sample 0 (vectorized) length: ')
@@ -80,4 +81,9 @@ print()
 # What if we wanted to go back to the source?
 print('To the source:')
 print(vectorizer.inverse_transform(v0))
+print()
+
+# What if we wanted to see the most common words?
+print('Most common words:')
+print(vectorizer.get_feature_names()[np.argmax(v0)])
 print()
